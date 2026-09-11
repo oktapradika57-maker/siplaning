@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 import plotly.express as px
 import io
+import json
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="SiPLANING", page_icon="📝", layout="wide")
@@ -17,8 +18,15 @@ SHEET_NAME = "Record Activity"
 @st.cache_resource
 def init_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Pastikan file credentials.json ada di folder yang sama
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    
+    # Cek apakah menggunakan st.secrets (seperti standar SiRAPI) atau file lokal credentials.json
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    else:
+        # Fallback menggunakan file credentials.json lokal
+        creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+        
     client = gspread.authorize(creds)
     sheet = client.open_by_url(SPREADSHEET_URL).worksheet(SHEET_NAME)
     return sheet
@@ -27,7 +35,7 @@ try:
     sheet = init_connection()
     koneksi_sukses = True
 except Exception as e:
-    st.error(f"Gagal terhubung ke Google Sheets. Pastikan credentials.json sudah benar dan sheet sudah di-share ke email service account. Error: {e}")
+    st.error(f"Gagal terhubung ke Google Sheets. Pastikan secrets/credentials sudah dikonfigurasi dengan benar. Error: {e}")
     koneksi_sukses = False
 
 # --- TABS NAVIGASI ---
@@ -112,9 +120,6 @@ with tab2:
         if data:
             df = pd.DataFrame(data)
             
-            # Jika header spreadsheet belum rapi, pastikan nama kolom sesuai. 
-            # Asumsi kolom di GSheets: Timestamp, Site ID, Plan Visit, PIC, SOW, Detail, Persiapan, Eksekusi, Dokumentasi, Progres (%)
-            
             # Metrik Cepat
             col_met1, col_met2, col_met3 = st.columns(3)
             col_met1.metric("Total Site Visit", len(df))
@@ -148,7 +153,6 @@ with tab2:
             if 'Progres (%)' in df.columns and 'Site ID' in df.columns:
                 st.subheader("Grafik Progres Penyelesaian per Site")
                 
-                # Mengurutkan berdasarkan Plan Visit jika ada
                 if 'Plan Visit' in df.columns:
                     df = df.sort_values(by='Plan Visit')
                 
